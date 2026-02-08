@@ -4,14 +4,11 @@ on:
   push:
     branches:
       - main
-    # EXCLUDE these files from triggering a Docker build
     paths-ignore:
       - 'README.md'
-      - 'app/**'        # Ignore the Streamlit folder
+      - 'app/**'
       - '.gitignore'
       - 'LICENSE'
-  
-  # Keep this so you can still trigger it manually
   workflow_dispatch:
 
 jobs:
@@ -23,11 +20,17 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
-        uses: actions/checkout@v4
-        # (Your existing Buildx setup steps here...)
+        uses: docker/setup-buildx-action@v3
 
       - name: Log in to Docker Hub
-        # (Your existing Docker Hub login using secrets here...)
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_TOKEN }}
 
       - name: Build and Push
-        # (Your existing build and push command here...)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: mugil6/rbi-inflation-monitor:latest
