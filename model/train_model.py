@@ -1,106 +1,73 @@
+import os
 import pandas as pd
-import numpy as np
-import yfinance as yf
 import pandas_datareader.data as web
+import numpy as np
 import tensorflow as tf
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import LSTM, Dense, Dropout
 from sklearn.preprocessing import MinMaxScaler
 import joblib
 from datetime import datetime
 
-# Disable OneDNN warnings (optional cleanup)
-import os
+# 1. PRODUCTION STABILITY SETTINGS
+os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 
+# 2. FETCH DATA FROM FRED (Live Training Source)
+print("🌐 Fetching historical data from FRED...")
+start = '2015-01-01'
+end = datetime.now().strftime('%Y-%m-%d')
 
-# 1. FETCH OFFICIAL DATA (INDIA)
-
-print("Step 1: Fetching Official Data...")
-
-start_date = '2015-01-01'
-end_date = datetime.now().strftime('%Y-%m-%d')
-
-# A. TARGET: India CPI (Consumer Price Index)
-# New Series ID: CPALTT01INM659N (OECD Standard for India CPI)
 try:
-    cpi_df = web.DataReader('CPALTT01INM659N', 'fred', start_date, end_date)
-    cpi_df.columns = ['CPI_Index']
-    print(f"   - Successfully fetched CPI Data (Rows: {len(cpi_df)})")
+    # CPALTT01INM659N = India CPI | DEXINUS = USD to INR
+    # MCOILWTICO = Crude Oil WTI
+    df_raw = web.DataReader(['CPALTT01INM659N', 'DEXINUS', 'MCOILWTICO'], 'fred', start, end)
+    
+    # Clean and Resample to Monthly
+    df = df_raw.resample('MS').mean().dropna()
+    df.columns = ['Inflation_Rate', 'USD_INR', 'Crude_Oil']
+    
+    # Reorder to match your DAG/App logic: [Oil, USD, CPI]
+    df = df[['Crude_Oil', 'USD_INR', 'Inflation_Rate']]
+    print(f"✅ Successfully prepared {len(df)} months of training data.")
 except Exception as e:
-    print(f"   - CRITICAL ERROR fetching FRED data: {e}")
+    print(f"❌ Failed to fetch data: {e}")
     exit()
 
-# B. FEATURES: High-Frequency Market Data
-# CL=F: Brent Crude Oil
-# INR=X: USD/INR Exchange Rate
-print("   - Fetching Market Data (Yahoo Finance)...")
-tickers = ['CL=F', 'INR=X']
-market_data = yf.download(tickers, start=start_date, end=end_date)['Close']
-market_data.columns = ['Oil', 'USD_INR']
-
-
-# 2. DATA ALIGNMENT & ENGINEERING
-
-print("Step 2: Processing & Aligning...")
-
-# Resample daily market data to Monthly Averages to match CPI
-market_monthly = market_data.resample('MS').mean()
-
-# Align indices
-cpi_df.index = pd.to_datetime(cpi_df.index)
-market_monthly.index = pd.to_datetime(market_monthly.index)
-
-# Merge
-df = pd.concat([cpi_df, market_monthly], axis=1).dropna()
-
-# CRITICAL: Calculate YoY Inflation Rate
-# Formula: (Current_Index - Index_12_Months_Ago) / Index_12_Months_Ago * 100
-df['Inflation_Rate'] = df['CPI_Index'].pct_change(periods=12) * 100
-df = df.dropna()
-
-print(f"   - Training Data Range: {df.index.min().date()} to {df.index.max().date()}")
-print(f"   - Latest Official Inflation in Data: {df['Inflation_Rate'].iloc[-1]:.2f}%")
-
-# Prepare Data for LSTM
-data = df[['Oil', 'USD_INR', 'Inflation_Rate']].values
-
-
-# 3. PREPROCESSING
-
+# 3. SCALING (Ensures scikit-learn 1.3.2 compatibility)
+features = df.values
 scaler = MinMaxScaler(feature_range=(0, 1))
-scaled_data = scaler.fit_transform(data)
+scaled_features = scaler.fit_transform(features)
 
-X, y = [], []
-lookback = 6
+# 4. CREATE SEQUENCES
+def create_sequences(data, lookback=10):
+    X, y = [], []
+    for i in range(len(data) - lookback):
+        X.append(data[i:i + lookback])
+        y.append(data[i + lookback, 2]) # Target: Inflation_Rate
+    return np.array(X), np.array(y)
 
-for i in range(lookback, len(scaled_data)):
-    X.append(scaled_data[i-lookback:i])
-    y.append(scaled_data[i, 2]) # Predict Inflation Rate
+LOOKBACK = 10
+X, y = create_sequences(scaled_features, LOOKBACK)
 
-X, y = np.array(X), np.array(y)
-
-
-# 4. BUILD & TRAIN LSTM
-
-print("Step 3: Training LSTM Model...")
-
-model = tf.keras.Sequential([
-    tf.keras.layers.Input(shape=(lookback, 3)),
-    tf.keras.layers.LSTM(50, return_sequences=True),
-    tf.keras.layers.Dropout(0.2),
-    tf.keras.layers.LSTM(50, return_sequences=False),
-    tf.keras.layers.Dropout(0.2),
-    tf.keras.layers.Dense(1)
+# 5. BUILD LSTM MODEL
+model = Sequential([
+    LSTM(64, activation='tanh', input_shape=(LOOKBACK, 3), return_sequences=True),
+    Dropout(0.2),
+    LSTM(32, activation='tanh'),
+    Dropout(0.2),
+    Dense(16, activation='relu'),
+    Dense(1)
 ])
 
 model.compile(optimizer='adam', loss='mse')
-model.fit(X, y, epochs=50, batch_size=16, verbose=1)
 
+# 6. TRAIN
+print("🚀 Training Model...")
+model.fit(X, y, epochs=60, batch_size=4, verbose=1)
 
-# 5. SAVE ARTIFACTS
-
-print("Step 4: Saving Artifacts...")
-model.save("model/rbi_lstm.keras")
-joblib.dump(scaler, "model/scaler.pkl")
-
-print("\n SUCCESS: Model trained on REAL data (Source: OECD/FRED).")
-print("   - Ready for Docker Build.")
+# 7. EXPORT
+os.makedirs('model', exist_ok=True)
+model.save('model/rbi_lstm.keras')
+joblib.dump(scaler, 'model/scaler.pkl')
+print("✅ SUCCESS: Model and Scaler exported to /model folder.")

@@ -2,29 +2,24 @@ version: '3.8'
 
 services:
   airflow:
-    # 1. LINK TO GITHUB BUILD
-    # This tells Docker: "Don't build from my laptop. Pull the finished code from the cloud."
     image: mugil6/rbi-inflation-monitor:latest
-    
-    # 2. RESTART POLICY
-    # If the DAG crashes, this forces it to try again.
     restart: always
-    
-    # 3. ENVIRONMENT VARIABLES (Crucial for DAG Success)
-    # The DAG needs these to talk to Supabase. Without them, the DAG fails immediately.
     env_file:
       - .env
     environment:
+      # 1. FIX: Use SequentialExecutor (Compatible with SQLite)
+      - AIRFLOW__CORE__EXECUTOR=SequentialExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=sqlite:////opt/airflow/airflow.db
       - AIRFLOW__CORE__LOAD_EXAMPLES=False
-      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
-      # Pass secrets explicitly if .env has issues
+      
+      # 2. PASS YOUR SECRETS
       - SUPABASE_URL=${SUPABASE_URL}
       - SUPABASE_KEY=${SUPABASE_KEY}
       
-    # 4. VOLUMES (Optional but Recommended)
-    # Even though code is in the image, this keeps logs persistent so you can debug failures.
+    # 3. FIX: Run "standalone" to start Webserver + Scheduler + DB Init together
+    command: standalone
+      
     volumes:
       - ./logs:/opt/airflow/logs
-      
     ports:
       - "8080:8080"
