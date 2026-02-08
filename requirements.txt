@@ -1,7 +1,9 @@
 streamlit
-plotly
 pandas
-requests
+numpy<2.0.0
+plotly
+sqlalchemy
+psycopg2-binary
 tensorflow-cpu
 joblib
-scikit-learn
+scikit-learn>=1.3.2
