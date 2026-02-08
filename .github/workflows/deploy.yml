@@ -5,14 +5,11 @@ on:
     branches:
       - main
     paths:
-      - 'Dockerfile'
-      - 'dags/**'
-      - 'model/**'
-      - 'app/**'
-      - 'requirements.txt'
-      - '!README.md'
-      - '!.gitignore'
-      - '!seed_data.py'
+      - '**'                # 1. Watch EVERY file in the repo
+      - '!README.md'        # 2. BUT ignore changes to the README
+      - '!.gitignore'       # 3. AND ignore .gitignore
+      - '!seed_data.py'     # 4. AND ignore your local seed script
+      - '!logs/**'          # 5. AND ignore any local Airflow logs
 
 jobs:
   build_and_push:
