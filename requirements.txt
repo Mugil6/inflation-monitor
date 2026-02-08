@@ -1,13 +1,8 @@
-# Web Framework & Viz
 streamlit
 plotly
-
-# Data Handling
 pandas
-numpy
+numpy<2.0.0
 requests
-
-# Model Loading
 tensorflow-cpu
 joblib
-scikit-learn==1.3.2
+scikit-learn>=1.3.2
