@@ -1,0 +1,27 @@
+version: '3'
+services:
+  rbi-airflow:
+    # Build the image
+    build: . 
+    container_name: rbi-airflow
+    
+    # Forward the port so you can see the UI at localhost:8080
+    ports:
+      - "8080:8080"
+      
+    # Connect your local folders to the container
+    # (This means if you change code in /dags, it updates instantly!)
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./model:/opt/airflow/model
+      - ./logs:/opt/airflow/logs
+      
+    # Environment Variables
+    environment:
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      
+    # The "Magic Command"
+    # This initializes the database, creates the user, and starts the server
+    # ALL IN ONE GO. No more manual setup.
+    command: bash -c "airflow db init && airflow users create --username admin --firstname Admin --lastname User --role Admin --email admin@example.com --password admin && airflow webserver & airflow scheduler"

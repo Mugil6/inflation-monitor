@@ -1,0 +1,11 @@
+pandas
+numpy
+yfinance
+pandas-datareader
+tensorflow
+scikit-learn
+joblib
+apache-airflow
+sqlalchemy
+psycopg2-binary
+python-dotenv
