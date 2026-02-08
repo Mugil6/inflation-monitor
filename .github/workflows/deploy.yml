@@ -1,34 +1,33 @@
-name: Build and Push Docker Image
+name: Deploy to Docker Hub
 
 on:
   push:
-    branches: [ "main" ]  # Triggers when you push code to main
-  workflow_dispatch:      # Allows you to click a button to run it manually
+    branches:
+      - main
+    # EXCLUDE these files from triggering a Docker build
+    paths-ignore:
+      - 'README.md'
+      - 'app/**'        # Ignore the Streamlit folder
+      - '.gitignore'
+      - 'LICENSE'
+  
+  # Keep this so you can still trigger it manually
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: 📥 Checkout Code
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: 🐳 Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - name: Set up Docker Buildx
+        uses: actions/checkout@v4
+        # (Your existing Buildx setup steps here...)
 
-      - name: 🔑 Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
+      - name: Log in to Docker Hub
+        # (Your existing Docker Hub login using secrets here...)
 
-      - name: 🔨 Build and Push
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./Dockerfile
-          push: true
-          tags: ${{ secrets.DOCKER_USERNAME }}/rbi-inflation-monitor:latest
-          # Caching makes subsequent builds faster
-          cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/rbi-inflation-monitor:buildcache
-          cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/rbi-inflation-monitor:buildcache,mode=max
+      - name: Build and Push
+        # (Your existing build and push command here...)
