@@ -9,14 +9,13 @@ RUN apt-get update && \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Switch back to airflow user to install Python libraries
+# Switch back to airflow user
 USER airflow
 
-# 1. Uninstall conflicing providers (Google Cloud often conflicts with custom TF installs)
+# 1. Uninstall conflicting providers
 RUN pip uninstall -y apache-airflow-providers-google
 
-# 2. Install the "Gold Standard" compatible library set
-# We pin versions strictly to prevent "Dependency Hell"
+# 2. Install Dependencies
 RUN pip install --no-cache-dir \
     "numpy==1.26.4" \
     "pandas==2.1.4" \
@@ -25,8 +24,10 @@ RUN pip install --no-cache-dir \
     "yfinance==0.2.40" \
     "supabase" \
     "packaging" \
-    "python-dotenv"
+    "python-dotenv" \
+    "pandas-datareader" \
+    "requests"
 
-# Copy your code and model into the container
+# Copy code and model
 COPY --chown=airflow:root dags/ /opt/airflow/dags/
 COPY --chown=airflow:root model/ /opt/airflow/model/
