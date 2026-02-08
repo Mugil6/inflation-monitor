@@ -1,22 +1,18 @@
 name: Deploy to Docker Hub
 
-
 on:
   push:
     branches:
       - main
-    
     paths:
       - 'Dockerfile'
       - 'dags/**'
       - 'model/**'
       - 'app/**'
       - 'requirements.txt'
-    
-    paths-ignore:
-      - 'README.md'
-      - '.gitignore'
-      - 'seed_data.py'
+      - '!README.md'
+      - '!.gitignore'
+      - '!seed_data.py'
 
 jobs:
   build_and_push:
