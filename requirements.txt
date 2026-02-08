@@ -1,11 +1,13 @@
+# Web Framework & Viz
+streamlit
+plotly
+
+# Data Handling
 pandas
 numpy
-yfinance
-pandas-datareader
-tensorflow
-scikit-learn
+requests
+
+# Model Loading
+tensorflow-cpu
 joblib
-apache-airflow
-sqlalchemy
-psycopg2-binary
-python-dotenv
+scikit-learn==1.3.2
