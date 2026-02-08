@@ -113,7 +113,7 @@ with DAG(
         'retries': 0,
         'email_on_failure': False
     },
-    schedule_interval='@monthly', 
+    schedule_interval='0 0 * * 1', 
     # Setting to today to ensure the UI shows the next run in the future
     start_date=datetime(2026, 2, 8), 
     catchup=False
