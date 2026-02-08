@@ -1,8 +1,7 @@
 streamlit
 plotly
 pandas
-numpy<2.0.0
 requests
 tensorflow-cpu
 joblib
-scikit-learn>=1.3.2
+scikit-learn
