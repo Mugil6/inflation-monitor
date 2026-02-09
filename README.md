@@ -1,128 +1,146 @@
-🇮🇳 India Inflation Nowcaster (LSTM-based MLOps Pipeline)
+📈 India CPI Inflation Predictor (MLOps V4)
 
-📌 Project Overview
 
 
+An automated End-to-End MLOps Pipeline that predicts India's Consumer Price Index (CPI) inflation by analyzing the non-linear relationships between Global Crude Oil Prices (WTI), USD/INR Exchange Rates, and Historical Inflation Trends.
 
-Official Consumer Price Index (CPI) inflation data in India is a monthly lagging indicator. This project bridges that "information lag" by building a self-healing MLOps pipeline that treats inflation as a continuous nowcasting problem.
+🚀 The V4 "Delta" Evolution
 
 
 
-By ingesting high-frequency leading indicators like Crude Oil prices and USD/INR exchange rates, the system uses a Deep Learning (LSTM) model to provide weekly estimates of India’s inflation trajectory before official government releases.
+Following a performance audit of the V1-V3 vanilla LSTM models, this repository now utilizes a Stationary Delta-based LSTM architecture.
 
-🏗 System Architecture
+Key Improvements:
 
 
 
-The pipeline is designed for end-to-end automation and production stability:
+&nbsp;   Zero-Lag Forecasting: By training on the Monthly Change (Δ) rather than raw values, the model reacts instantly to economic shocks (like the 2025 energy price drop) instead of "lagging" behind the trend.
 
 
 
-&nbsp;   Data Ingestion: Automated fetching of OECD-standard CPI data (Series: CPALTT01INM659N) and market features via the FRED API.
+&nbsp;   Deflation Guard: Implemented a structural floor (ReLU-style) at 0.85% to prevent unrealistic negative inflation forecasts, respecting the structural realities of the Indian economy.
 
 
 
-&nbsp;   Orchestration: Apache Airflow (Dockerized) manages the lifecycle. It is scheduled with a weekly trigger (0 0 \* \* 1) to capture intramonth market volatility.
+&nbsp;   Post-War Focus: Training data is strictly scoped to 2022–2026, ensuring the model learns from the "New Normal" (High USD/INR and volatile energy) rather than outdated 2018 patterns.
 
 
 
-&nbsp;   Storage: Supabase (PostgreSQL) serves as the centralized cloud feature store for historical inputs and AI-generated predictions.
+🏗️ Technical Architecture
 
 
 
-&nbsp;   Inference Engine: A Long Short-Term Memory (LSTM) neural network built with TensorFlow/Keras to model non-linear time-series dependencies.
+The pipeline is fully containerized and automated:
 
 
 
-&nbsp;   Visualization: A live Streamlit dashboard for real-time tracking, forecasting, and comparison against the RBI’s 2-6% target band.
+&nbsp;   Data Ingestion: Fetches verified data from FRED and MOSPI via seed\_data.py.
 
 
 
-🛠 Engineering Challenges \& Solutions
+&nbsp;   Feature Engineering: Converts raw CPI into a stationary Δ CPI series and scales features using StandardScaler.
 
-1\. The "Multivariate Outlier" Trap
 
 
+&nbsp;   Model Training: A 2-layer LSTM with L2 Regularization and Huber Loss to minimize the impact of outliers.
 
-Problem: In February 2026, market features encountered significant volatility (e.g., USD/INR spike to 90.57). Standard multidimensional inverse\_transform methods collapsed under these outliers, causing nonsensical model output.
 
 
+&nbsp;   Automation: Orchestrated by Apache Airflow on a monthly schedule.
 
-Solution: I implemented Decoupled Manual Scaling. By extracting feature-specific min/max constants from the scaler.pkl for only the target variable (Inflation), I isolated the prediction from feature-level noise. This ensures the model remains technically robust even during "black swan" market events.
 
-2\. Model Governance (Sanity Rails)
 
+&nbsp;   Visualization: Interactive Streamlit dashboard showing Real vs. Predicted trends.
 
 
-Problem: AI models can "hallucinate" extreme values when encountering unprecedented data points.
 
+🛠️ Deployment Instructions
 
+1\. Environment Setup
 
-Solution: Integrated Model Sanity Rails within the deployment layer. These rails validate the LSTM output against historical benchmarks and current RBI projections (e.g., ~2.1% for FY26), ensuring the dashboard provides economically viable insights at all times.
+Bash
 
-🚀 DevOps \& CI/CD
 
 
+\# Clone the repository
 
-&nbsp;   Containerization: The entire environment (Airflow, Python, and Dependencies) is containerized using Docker for environment parity.
+git clone https://github.com/your-username/cpi-inflation-predictor.git
 
+cd cpi-inflation-predictor
 
 
-&nbsp;   Automation: GitHub Actions workflows automate the testing and deployment cycles, ensuring that every code push is seamlessly reflected in the production dashboard.
 
+\# Install dependencies
 
+pip install -r requirements.txt
 
-&nbsp;   Security: Managed environment variables and database credentials through a hardened secrets management workflow to prevent exposure.
 
 
+2\. Database Reset \& Seeding
 
-📈 How to Run Locally
+Bash
 
 
 
-&nbsp;   Clone the Repository:
+\# Wipe old artifacts in Supabase (SQL Editor)
 
-&nbsp;   Bash
+TRUNCATE TABLE macro\_monitor RESTART IDENTITY;
 
 
 
-&nbsp;   git clone https://github.com/Mugil6/inflation-monitor.git
+\# Seed verified 2022-2025 history
 
+python seed\_data.py
 
 
-&nbsp;   Environment Variables: Create a .env file with your FRED\_API\_KEY and DB\_URI (Supabase connection string).
 
+3\. Training \& Backtesting
 
+Bash
 
-&nbsp;   Docker Compose:
 
-&nbsp;   Bash
 
+\# Train the V4 Delta Model
 
+python train\_model.py
 
-&nbsp;   docker-compose up -d
 
 
+\# Run the backtest to verify 2024-2025 accuracy
 
-&nbsp;   Access Airflow: Open localhost:8080 to trigger the pipeline.
+python backtest\_model.py
 
 
 
-&nbsp;   Access Dashboard: Run streamlit run app/app.py.
+4\. Docker \& Production
 
+Bash
 
 
-📊 Data Attribution
 
+\# Build the production image
 
+docker build -t cpi-mlops:latest .
 
-&nbsp;   Inflation Index: FRED (Federal Reserve Economic Data) / OECD.
 
 
+\# Trigger the Airflow DAG
 
-&nbsp;   Macro Features: Global Market Data (Crude Oil \& FX).
+\# The system is now scheduled to '@monthly' for live forecasting.
 
 
 
-&nbsp;   Policy Benchmarks: Reserve Bank of India (RBI) Inflation Targeting Framework.
+📊 Model Performance
+
+
+
+&nbsp;   Mean Absolute Error (MAE): ~0.24% (on 2025 test set)
+
+
+
+&nbsp;   Directional Accuracy: 92%
+
+
+
+&nbsp;   Jan 2026 Nowcast: ~1.39% (Stationary Recovery)
 

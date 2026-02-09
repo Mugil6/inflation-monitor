@@ -1,73 +1,53 @@
-import os
 import pandas as pd
-import pandas_datareader.data as web
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense, Dropout
-from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import StandardScaler # StandardScaler is often better for deltas
+from supabase import create_client
 import joblib
-from datetime import datetime
+import os
+from dotenv import load_dotenv
 
-# 1. PRODUCTION STABILITY SETTINGS
-os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
-os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
+load_dotenv()
+supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
 
-# 2. FETCH DATA FROM FRED (Live Training Source)
-print("🌐 Fetching historical data from FRED...")
-start = '2015-01-01'
-end = datetime.now().strftime('%Y-%m-%d')
-
-try:
-    # CPALTT01INM659N = India CPI | DEXINUS = USD to INR
-    # MCOILWTICO = Crude Oil WTI
-    df_raw = web.DataReader(['CPALTT01INM659N', 'DEXINUS', 'MCOILWTICO'], 'fred', start, end)
+def train_v4_delta():
+    print("📥 Fetching Data for Delta Training...")
+    response = supabase.table("macro_monitor").select("*").order("date", desc=False).execute()
+    df = pd.DataFrame(response.data).dropna(subset=['cpi_inflation_rate'])
     
-    # Clean and Resample to Monthly
-    df = df_raw.resample('MS').mean().dropna()
-    df.columns = ['Inflation_Rate', 'USD_INR', 'Crude_Oil']
+    # CALCULATE DELTA (Stationarity)
+    df['cpi_delta'] = df['cpi_inflation_rate'].diff().fillna(0)
     
-    # Reorder to match your DAG/App logic: [Oil, USD, CPI]
-    df = df[['Crude_Oil', 'USD_INR', 'Inflation_Rate']]
-    print(f"✅ Successfully prepared {len(df)} months of training data.")
-except Exception as e:
-    print(f"❌ Failed to fetch data: {e}")
-    exit()
+    # Feature Set: [Oil, USD, CPI_Actual, CPI_Delta]
+    features = df[['oil_price', 'usd_inr', 'cpi_delta']].values
+    
+    scaler = StandardScaler()
+    scaled_data = scaler.fit_transform(features)
 
-# 3. SCALING (Ensures scikit-learn 1.3.2 compatibility)
-features = df.values
-scaler = MinMaxScaler(feature_range=(0, 1))
-scaled_features = scaler.fit_transform(features)
-
-# 4. CREATE SEQUENCES
-def create_sequences(data, lookback=10):
     X, y = [], []
-    for i in range(len(data) - lookback):
-        X.append(data[i:i + lookback])
-        y.append(data[i + lookback, 2]) # Target: Inflation_Rate
-    return np.array(X), np.array(y)
+    for i in range(10, len(scaled_data)):
+        X.append(scaled_data[i-10:i])
+        y.append(scaled_data[i, 2]) # We are predicting the DELTA
+    
+    X, y = np.array(X), np.array(y)
 
-LOOKBACK = 10
-X, y = create_sequences(scaled_features, LOOKBACK)
+    # LIGHTWEIGHT ARCHITECTURE (Preventing Overfitting)
+    model = Sequential([
+        LSTM(32, input_shape=(10, 3)), # Fewer units = better generalization for small data
+        Dropout(0.2),
+        Dense(1) 
+    ])
+    
+    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.005), loss='mae') # MAE is less sensitive to outliers
+    
+    print("🚀 Training Delta-Based Model...")
+    model.fit(X, y, epochs=150, batch_size=2, verbose=0)
 
-# 5. BUILD LSTM MODEL
-model = Sequential([
-    LSTM(64, activation='tanh', input_shape=(LOOKBACK, 3), return_sequences=True),
-    Dropout(0.2),
-    LSTM(32, activation='tanh'),
-    Dropout(0.2),
-    Dense(16, activation='relu'),
-    Dense(1)
-])
+    model.save('model/rbi_lstm.keras')
+    joblib.dump(scaler, 'model/scaler.pkl')
+    print("✅ MLOps V4 Model Saved!")
 
-model.compile(optimizer='adam', loss='mse')
-
-# 6. TRAIN
-print("🚀 Training Model...")
-model.fit(X, y, epochs=60, batch_size=4, verbose=1)
-
-# 7. EXPORT
-os.makedirs('model', exist_ok=True)
-model.save('model/rbi_lstm.keras')
-joblib.dump(scaler, 'model/scaler.pkl')
-print("✅ SUCCESS: Model and Scaler exported to /model folder.")
+if __name__ == "__main__":
+    train_v4_delta()

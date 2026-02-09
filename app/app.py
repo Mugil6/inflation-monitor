@@ -4,23 +4,20 @@ from supabase import create_client
 import plotly.graph_objects as go
 import os
 
-# 1. SETUP & THEME
+# 1. PAGE SETUP
 st.set_page_config(page_title="RBI Inflation Monitor", layout="wide")
 st.title("📈 RBI Inflation Monitor & Forecast")
 st.markdown("---")
 
-# Supabase Credentials
 URL = os.getenv("SUPABASE_URL")
 KEY = os.getenv("SUPABASE_KEY")
 supabase = create_client(URL, KEY)
 
-# 2. DATA FETCHING
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=60)
 def get_data():
-    # FIXED: Using desc=False instead of ascending=True
+    # Use desc=False for the correct sorting syntax
     response = supabase.table("macro_monitor").select("*").order("date", desc=False).execute()
     df = pd.DataFrame(response.data)
-    
     if not df.empty:
         df['date'] = pd.to_datetime(df['date'])
     return df
@@ -29,66 +26,46 @@ try:
     df = get_data()
 
     if df.empty:
-        st.warning("No data found in Supabase. Check your 'macro_monitor' table.")
+        st.warning("⚠️ Database empty. Run 'python seed_data.py' locally.")
     else:
-        # 3. METRIC CARDS (Top Row)
-        latest_row = df.iloc[-1]
+        # Separate data for the chart
+        df_actuals = df[df['cpi_inflation_rate'].notna()].copy()
+        df_forecasts = df[df['is_forecast'] == True].copy()
+
+        # 2. TOP METRICS
+        latest_f = df_forecasts.iloc[-1]
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Next Month Forecast (Feb)", f"{latest_f['predicted_inflation']:.2f}%")
+        m2.metric("Crude Oil (WTI)", f"${latest_f['oil_price']:.2f}")
+        m3.metric("USD/INR Rate", f"₹{latest_f['usd_inr']:.2f}")
+
+        # 3. COMPARISON CHART
+        st.markdown("### 📊 Actual RBI CPI vs. LSTM Prediction")
         
-        # Check if latest point is a forecast
-        if latest_row.get('is_forecast', False):
-            current_val = latest_row['predicted_inflation']
-            label = "Next Month Forecast"
-        else:
-            current_val = latest_row['cpi_inflation_rate']
-            label = "Latest Actual CPI"
-
-        col1, col2, col3 = st.columns(3)
-        col1.metric(label, f"{current_val:.2f}%", delta_color="inverse")
-        col2.metric("Oil Price (WTI)", f"${latest_row['oil_price']:.2f}")
-        col3.metric("USD/INR", f"₹{latest_row['usd_inr']:.2f}")
-
-        st.markdown("### 12-Month Performance: Actual vs. Forecast")
-
-        # 4. DATA PROCESSING FOR COMPARISON (Last 12 rows)
-        last_year_df = df.tail(12).copy()
-
-        # 5. PLOTLY CHART
         fig = go.Figure()
 
-        # Trace for Actual Inflation
+        # Actuals Line (The History)
         fig.add_trace(go.Scatter(
-            x=last_year_df['date'], 
-            y=last_year_df['cpi_inflation_rate'],
-            mode='lines+markers',
-            name='Actual CPI (%)',
-            line=dict(color='#00CC96', width=3),
-            connectgaps=True
+            x=df_actuals['date'], y=df_actuals['cpi_inflation_rate'],
+            name="Actual RBI CPI", line=dict(color='#00CC96', width=4)
         ))
 
-        # Trace for Predicted Inflation
+        # Prediction Line (The Future)
         fig.add_trace(go.Scatter(
-            x=last_year_df['date'], 
-            y=last_year_df['predicted_inflation'],
-            mode='lines+markers',
-            name='Model Forecast (%)',
-            line=dict(color='#EF553B', width=3, dash='dot'),
-            connectgaps=True
+            x=df_forecasts['date'], y=df_forecasts['predicted_inflation'],
+            name="LSTM Prediction", line=dict(color='#EF553B', width=3, dash='dot')
         ))
 
-        fig.update_layout(
-            template="plotly_dark",
-            height=500,
-            xaxis_title="Date",
-            yaxis_title="Inflation Rate (%)",
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-        )
+        # Add RBI Target Zones
+        fig.add_hline(y=4.0, line_dash="dash", line_color="rgba(255,255,255,0.3)", annotation_text="Target")
+        fig.add_hrect(y0=2.0, y1=6.0, fillcolor="white", opacity=0.05, layer="below", line_width=0)
 
+        fig.update_layout(template="plotly_dark", height=500, hovermode="x unified")
         st.plotly_chart(fig, use_container_width=True)
 
-        # 6. RAW DATA TABLE
-        with st.expander("View Raw Data Details"):
+        # 4. RAW LOGS
+        with st.expander("📝 View Raw Data Logs"):
             st.dataframe(df.sort_values('date', ascending=False), use_container_width=True)
 
 except Exception as e:
-    st.error(f"⚠️ Application Error: {e}")
-    st.info("Check your Supabase column names: Ensure 'cpi_inflation_rate' and 'predicted_inflation' exist.")
+    st.error(f"Application Error: {e}")

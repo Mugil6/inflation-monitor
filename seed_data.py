@@ -1,80 +1,53 @@
 import pandas as pd
 import pandas_datareader.data as web
-import requests
-from io import StringIO
-from datetime import datetime
 from supabase import create_client
+from datetime import datetime
 import os
 from dotenv import load_dotenv
 
-# 1. SETUP
-load_dotenv() 
-url = os.getenv("SUPABASE_URL")
-key = os.getenv("SUPABASE_KEY")
-supabase = create_client(url, key)
+load_dotenv()
+supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
 
-print("🚀 Starting Historical Data Backfill (Schema: macro_monitor)...")
-
-start = '2015-01-01'
-end = datetime.now().strftime('%Y-%m-%d')
-
-# --- SOURCE A: FRED (For CPI & USD/INR) ---
-print("   - Fetching CPI & USD/INR from FRED...")
-try:
-    # CPALTT01INM659N = India CPI, DEXINUS = USD/INR
-    fred_data = web.DataReader(['CPALTT01INM659N', 'DEXINUS'], 'fred', start, end)
+def seed_database():
+    print("🧹 Cleaning and Reseeding (2022 - 2026)...")
+    start, end = datetime(2022, 1, 1), datetime.now()
     
-    # Process CPI (Already Monthly)
-    cpi_df = fred_data[['CPALTT01INM659N']].rename(columns={'CPALTT01INM659N': 'cpi_inflation'})
-    
-    # Process USD/INR (Daily -> Monthly Average)
-    usd_df = fred_data[['DEXINUS']].resample('MS').mean().rename(columns={'DEXINUS': 'usd_inr'})
-    
-except Exception as e:
-    print(f"❌ Critical Error fetching FRED data: {e}")
-    exit()
+    # 1. FETCH HISTORICAL (2022-2024)
+    try:
+        df = web.DataReader(['CPALTT01INM659N', 'MCOILWTICO', 'DEXINUS'], 'fred', start, end)
+        df = df.resample('MS').mean().dropna(subset=['MCOILWTICO']) 
+    except Exception as e:
+        print(f"❌ FRED Error: {e}")
+        return
 
-# --- SOURCE B: Open Data GitHub (For Crude Oil) ---
-print("   - Fetching Crude Oil from Open Data...")
-try:
-    oil_url = "https://raw.githubusercontent.com/datasets/oil-prices/master/data/wti-daily.csv"
-    response = requests.get(oil_url)
-    oil_raw = pd.read_csv(StringIO(response.text))
-    
-    # Clean & Resample
-    oil_raw['Date'] = pd.to_datetime(oil_raw['Date'])
-    oil_raw.set_index('Date', inplace=True)
-    oil_raw = oil_raw.sort_index()
-    oil_raw = oil_raw[start:end]
-    
-    # Resample Daily Price -> Monthly Average
-    oil_df = oil_raw.resample('MS').mean().rename(columns={'Price': 'oil_price'})
-    
-except Exception as e:
-    print(f"❌ Critical Error fetching Oil data: {e}")
-    exit()
+    # 2. MANUAL 2025/2026 OVERRIDE (Official MOSPI Data)
+    # This fills the gap FRED is missing
+    official_data = {
+        "2025-01-01": 4.26, "2025-02-01": 3.61, "2025-03-01": 2.95,
+        "2025-06-01": 2.10, "2025-10-01": 0.25, "2025-11-01": 0.71,
+        "2025-12-01": 1.33
+    }
 
-# --- MERGE & ALIGN ---
-print("   - Merging Datasets...")
-df_final = pd.concat([cpi_df, usd_df, oil_df], axis=1).dropna()
-df_final.index.name = 'date'
-df_final.reset_index(inplace=True)
-df_final['date'] = df_final['date'].dt.strftime('%Y-%m-%d')
+    print("🚀 Uploading combined data to Supabase...")
+    for index, row in df.iterrows():
+        date_str = index.strftime('%Y-%m-%d')
+        
+        # Use official value if we have it, otherwise use FRED
+        cpi_val = official_data.get(date_str, row['CPALTT01INM659N'])
+        
+        if pd.isna(cpi_val) and index.year < 2026:
+            continue # Skip 2026 months in seed; the DAG will handle those
 
-# Add Schema Specific Columns
-df_final['predicted_inflation'] = None
-df_final['is_forecast'] = False
+        data = {
+            "date": date_str,
+            "oil_price": round(float(row['MCOILWTICO']), 2),
+            "usd_inr": round(float(row['DEXINUS']), 2),
+            "cpi_inflation_rate": round(float(cpi_val), 2) if not pd.isna(cpi_val) else None,
+            "is_forecast": False
+        }
+        supabase.table("macro_monitor").upsert(data).execute()
 
-# --- UPLOAD TO SUPABASE ---
-print(f"   - Uploading {len(df_final)} rows to 'macro_monitor'...")
-data_list = df_final.to_dict(orient='records')
+    print("✅ Seed Complete! 2025 data is now manually verified.")
 
-try:
-    # Upsert in batches of 50
-    for i in range(0, len(data_list), 50):
-        batch = data_list[i:i+50]
-        supabase.table('macro_monitor').upsert(batch).execute()
-        print(f"     ... Uploaded batch {i//50 + 1}")
-    print("✅ SUCCESS: History seeded successfully!")
-except Exception as e:
-    print(f"❌ Upload Error: {e}")
+if __name__ == "__main__":
+    seed_database()

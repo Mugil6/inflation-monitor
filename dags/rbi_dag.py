@@ -14,60 +14,82 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 def predict_inflation():
-    print("🚀 Starting Inflation Prediction Task...")
+    print("🚀 Starting V4 Delta-Inference Task...")
     
     # 2. FETCH LATEST DATA (FRED API)
-    # Getting last 12 months to ensure we have enough for the 10-month lookback
+    # Fetching ~14 months to ensure we have a solid window for diff() and 10-month lookback
     end = datetime.now()
-    start = end - timedelta(days=365)
+    start = end - timedelta(days=420)
     
     try:
-        # Crude Oil (MCOILWTICO) | USD/INR (DEXINUS) | India CPI (CPALTT01INM659N)
+        # Features: Crude Oil (WTI) | USD/INR | India CPI
         df_raw = web.DataReader(['MCOILWTICO', 'DEXINUS', 'CPALTT01INM659N'], 'fred', start, end)
-        df = df_raw.resample('MS').mean().ffill().dropna()
         
-        # ENFORCE FEATURE ORDER: [Oil, USD, CPI]
-        # This MUST match the train_model.py logic
-        df = df[['MCOILWTICO', 'DEXINUS', 'CPALTT01INM659N']]
-        current_features = df.tail(10).values # Get the last 10 months
+        # Preprocessing: Resample to Month Start, forward-fill missing market data
+        df = df_raw.resample('MS').mean().ffill()
         
-        print(f"✅ Data Fetched. Latest Oil: {df.iloc[-1,0]:.2f}, USD: {df.iloc[-1,1]:.2f}")
+        # MLOPS V4 LOGIC: Calculate Delta (Stationarity)
+        # This matches the train_model.py V4 logic
+        df['cpi_delta'] = df['CPALTT01INM659N'].diff().fillna(0)
+        
+        # Anchor point: The last known actual CPI value reported by the government
+        last_actual_cpi = df['CPALTT01INM659N'].dropna().iloc[-1]
+        
+        # ENFORCE FEATURE ORDER: [Oil, USD, CPI_Delta]
+        features_df = df[['MCOILWTICO', 'DEXINUS', 'cpi_delta']].tail(10)
+        current_features = features_df.values
+        
+        if len(current_features) < 10:
+            raise ValueError(f"Insufficient data: Found {len(current_features)} months, need 10.")
+            
+        print(f"✅ Data Prepared. Anchor CPI: {last_actual_cpi:.2f}% | Latest Oil: {df.iloc[-1,0]:.2f}")
     except Exception as e:
-        print(f"❌ Data Fetch Error: {e}")
+        print(f"❌ Data Fetch/Prep Error: {e}")
         return
 
-    # 3. LOAD ARTIFACTS
-    model = tf.keras.models.load_model('/opt/airflow/model/rbi_lstm.keras')
-    scaler = joblib.load('/opt/airflow/model/scaler.pkl')
+    # 3. LOAD PRODUCTION ARTIFACTS
+    # Ensure these paths match your Docker volume mapping
+    try:
+        model = tf.keras.models.load_model('/opt/airflow/model/rbi_lstm.keras')
+        scaler = joblib.load('/opt/airflow/model/scaler.pkl')
+    except Exception as e:
+        print(f"❌ Artifact Load Error: {e}")
+        return
 
-    # 4. PREPROCESS & PREDICT
-    # Scale inputs using the same translator from training
+    # 4. PREPROCESS & PREDICT DELTA
     scaled_input = scaler.transform(current_features)
     scaled_input = np.expand_dims(scaled_input, axis=0) # Shape: (1, 10, 3)
 
-    scaled_prediction = model.predict(scaled_input)
+    scaled_prediction = model.predict(scaled_input, verbose=0)
     
-    # INVERSE TRANSFORM (The fix for the 1368% error)
-    # We create a dummy row to reverse-scale only the 3rd column (CPI)
+    # Inverse Transform only the Delta (3rd column)
     dummy = np.zeros((1, 3))
     dummy[0, 2] = scaled_prediction[0, 0]
-    prediction = scaler.inverse_transform(dummy)[0, 2]
+    predicted_delta = scaler.inverse_transform(dummy)[0, 2]
     
-    print(f"🎯 FINAL PREDICTION: {prediction:.2f}%")
+    # 5. RECONSTRUCT & DEFLATION GUARD
+    # Final Forecast = Last Actual + Model's Predicted Change
+    final_prediction = last_actual_cpi + predicted_delta
+    
+    # Apply structural floor for the Indian economy (V4 fine-tuning)
+    final_prediction = max(0.85, final_prediction)
+    
+    print(f"🎯 Predicted Δ: {predicted_delta:+.2f} | FINAL FORECAST: {final_prediction:.2f}%")
 
-    # 5. UPSERT TO SUPABASE (The fix for the 400 error)
+    # 6. UPSERT TO SUPABASE
     headers = {
         "apikey": SUPABASE_KEY,
         "Authorization": f"Bearer {SUPABASE_KEY}",
         "Content-Type": "application/json",
-        "Prefer": "resolution=merge-duplicates" # <--- IMPORTANT: Overwrites if date exists
+        "Prefer": "resolution=merge-duplicates"
     }
 
+    # Forecast date is the start of the current month
     payload = {
-        "date": datetime.now().strftime('%Y-%m-01'), # Floor to start of month
+        "date": datetime.now().strftime('%Y-%m-01'),
         "oil_price": float(df.iloc[-1, 0]),
         "usd_inr": float(df.iloc[-1, 1]),
-        "predicted_inflation": float(prediction),
+        "predicted_inflation": float(final_prediction),
         "is_forecast": True
     }
 
@@ -81,22 +103,26 @@ def predict_inflation():
     if response.status_code >= 400:
         print(f"❌ Error Detail: {response.text}")
 
-# 6. DAG DEFINITION
+# 7. DAG DEFINITION
 default_args = {
     'owner': 'mugil',
+    'depends_on_past': False,
     'start_date': datetime(2026, 1, 1),
-    'retries': 1,
-    'retry_delay': timedelta(minutes=5),
+    'email_on_failure': False,
+    'retries': 2,
+    'retry_delay': timedelta(minutes=10),
 }
 
 with DAG(
-    'rbi_inflation_monitor',
+    'rbi_inflation_monitor_v4',
     default_args=default_args,
-    schedule_interval='@weekly', # Runs every Sunday night
-    catchup=False
+    description='MLOps V4: Delta-based Inflation Forecasting',
+    schedule_interval='@monthly', 
+    catchup=False,
+    tags=['mlops', 'inflation', 'india']
 ) as dag:
 
     task_predict = PythonOperator(
-        task_id='predict_inflation',
+        task_id='predict_inflation_v4',
         python_callable=predict_inflation
     )
