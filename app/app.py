@@ -34,7 +34,7 @@ try:
         st.title("📊 CPI Inflation Monitor & Forecast")
         
         # --- NEW: METHODOLOGY & DATA SOURCES ---
-        with st.expander("ℹ️ Methodology & Data Sources", expanded=False):
+        with st.info("ℹ️ Methodology & Data Sources", expanded=False):
             st.markdown("""
             **Data Sources:**
             * **CPI Data:** Sourced from the **Ministry of Statistics and Programme Implementation (MOSPI)** (Government of India).
