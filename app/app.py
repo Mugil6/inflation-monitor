@@ -16,7 +16,7 @@ supabase = create_client(URL, KEY)
 @st.cache_data(ttl=60)
 def get_data():
     # Use desc=False for the correct sorting syntax
-    response = supabase.table("macro_monitor").select("*").order("date", desc=False).execute()
+    response = supabase.table("macro_monitor").select("*").order("date", desc=True).limit(15).execute()
     df = pd.DataFrame(response.data)
     if not df.empty:
         df['date'] = pd.to_datetime(df['date'])
