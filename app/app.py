@@ -21,19 +21,33 @@ def get_data():
     return pd.DataFrame(response.data).sort_values('date')
 
 try:
-    st.set_page_config(page_title="RBI Inflation Monitor", layout="wide")
+    # UPDATED: Changed page title to CPI
+    st.set_page_config(page_title="CPI Inflation Monitor", layout="wide")
+    
     df = get_data()
     
     if not df.empty:
         # Get the absolute latest record for the metric cards
         latest_record = df.iloc[-1]
         
-        st.title("📊 RBI Inflation Monitor & Forecast")
+        # UPDATED: Main dashboard title
+        st.title("📊 CPI Inflation Monitor & Forecast")
         
+        # --- NEW: METHODOLOGY & DATA SOURCES ---
+        with st.expander("ℹ️ Methodology & Data Sources", expanded=False):
+            st.markdown("""
+            **Data Sources:**
+            * **CPI Data:** Sourced from the **Ministry of Statistics and Programme Implementation (MOSPI)** (Government of India).
+            * **Macro Indicators:** Crude Oil (WTI) and USD/INR exchange rates are fetched from real-time market data APIs.
+            
+            **How it Predicts:**
+            This dashboard uses a **Long Short-Term Memory (LSTM)** model—a specialized Recurrent Neural Network (RNN) designed for time-series data. 
+            The model analyzes historical patterns in inflation, currency fluctuations, and oil prices to project the **Consumer Price Index (CPI)** trend for the upcoming month.
+            """)
+
         # --- METRIC CARDS ---
-        # Using iloc[-1] ensures we show the 1.84% forecast, not the 2.69% historical point
         col1, col2, col3 = st.columns(3)
-        col1.metric("Next Month Forecast (Feb)", f"{latest_record['predicted_inflation']:.2f}%")
+        col1.metric("Next Month Forecast (CPI)", f"{latest_record['predicted_inflation']:.2f}%")
         col2.metric("Crude Oil (WTI)", f"${latest_record['oil_price']:.2f}")
         col3.metric("USD/INR Rate", f"₹{latest_record['usd_inr']:.2f}")
 
@@ -41,7 +55,6 @@ try:
         fig = go.Figure()
 
         # 1. Add RBI Target Band (4% to 6%)
-        # This adds a subtle shaded region for the official target range
         fig.add_hrect(y0=4, y1=6, fillcolor="rgba(255, 255, 255, 0.05)", 
                       line_width=0, annotation_text="RBI Upper Tolerance (4-6%)", 
                       annotation_position="top left")
@@ -49,20 +62,20 @@ try:
         # 2. Add Target Line at 4%
         fig.add_hline(y=4, line_dash="dash", line_color="gray", annotation_text="RBI Target 4%")
 
-        # 3. Actual RBI CPI (Green Solid)
+        # 3. Actual CPI (Green Solid)
         df_actuals = df[df['cpi_inflation_rate'].notna()]
         fig.add_trace(go.Scatter(x=df_actuals['date'], y=df_actuals['cpi_inflation_rate'],
-                                 mode='lines+markers', name='Actual RBI CPI',
+                                 mode='lines+markers', name='Actual CPI',
                                  line=dict(color='#00d1b2', width=3)))
 
         # 4. LSTM Prediction (Red Dashed)
-        # Using .notna() ensures the line connects all predictions
         df_forecasts = df[df['predicted_inflation'].notna()]
         fig.add_trace(go.Scatter(x=df_forecasts['date'], y=df_forecasts['predicted_inflation'],
                                  mode='lines+markers', name='LSTM Prediction',
                                  line=dict(color='#ff4b4b', width=2, dash='dot')))
 
-        fig.update_layout(title="📈 Actual RBI CPI vs. LSTM Prediction",
+        # UPDATED: Chart title
+        fig.update_layout(title="📈 Actual CPI vs. LSTM Prediction",
                           template="plotly_dark",
                           xaxis_title="Date",
                           yaxis_title="Inflation Rate (%)",
