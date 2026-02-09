@@ -5,14 +5,12 @@ from supabase import create_client
 import os
 
 # --- INITIALIZATION ---
-# Ensure these match your secrets.toml or environment variables
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # --- DATA FETCHING ---
 def get_data():
-    # Fetching 12 months
     response = supabase.table("macro_monitor") \
         .select("*") \
         .order("date", desc=True) \
@@ -21,29 +19,26 @@ def get_data():
     return pd.DataFrame(response.data).sort_values('date')
 
 try:
-    # UPDATED: Changed page title to CPI
     st.set_page_config(page_title="CPI Inflation Monitor", layout="wide")
     
     df = get_data()
     
     if not df.empty:
-        # Get the absolute latest record for the metric cards
         latest_record = df.iloc[-1]
         
-        # UPDATED: Main dashboard title
         st.title("📊 CPI Inflation Monitor & Forecast")
         
-        # --- NEW: METHODOLOGY & DATA SOURCES ---
-        with st.info("ℹ️ Methodology & Data Sources", expanded=False):
-            st.markdown("""
-            **Data Sources:**
-            * **CPI Data:** Sourced from the **Ministry of Statistics and Programme Implementation (MOSPI)** (Government of India).
-            * **Macro Indicators:** Crude Oil (WTI) and USD/INR exchange rates are fetched from real-time market data APIs.
-            
-            **How it Predicts:**
-            This dashboard uses a **Long Short-Term Memory (LSTM)** model—a specialized Recurrent Neural Network (RNN) designed for time-series data. 
-            The model analyzes historical patterns in inflation, currency fluctuations, and oil prices to project the **Consumer Price Index (CPI)** trend for the upcoming month.
-            """)
+        st.info("""
+        ### ℹ️ Methodology & Data Sources
+        
+        **Data Sources:**
+        * **CPI Data:** Sourced from the **Ministry of Statistics and Programme Implementation (MOSPI)**.
+        * **Macro Indicators:** Crude Oil (WTI) and USD/INR exchange rates from real-time market APIs.
+        
+        **How it Predicts:**
+        This dashboard uses a **Long Short-Term Memory (LSTM)** model to analyze historical patterns in inflation, currency fluctuations, and oil prices to project the **CPI** trend for the upcoming month.
+        """)
+        # ---------------------
 
         # --- METRIC CARDS ---
         col1, col2, col3 = st.columns(3)
@@ -54,7 +49,7 @@ try:
         # --- CHART LOGIC ---
         fig = go.Figure()
 
-        # 1. Add RBI Target Band (4% to 6%)
+        # 1. RBI Target Band (4% to 6%)
         fig.add_hrect(y0=4, y1=6, fillcolor="rgba(255, 255, 255, 0.05)", 
                       line_width=0, annotation_text="RBI Upper Tolerance (4-6%)", 
                       annotation_position="top left")
@@ -74,7 +69,6 @@ try:
                                  mode='lines+markers', name='LSTM Prediction',
                                  line=dict(color='#ff4b4b', width=2, dash='dot')))
 
-        # UPDATED: Chart title
         fig.update_layout(title="📈 Actual CPI vs. LSTM Prediction",
                           template="plotly_dark",
                           xaxis_title="Date",
