@@ -72,14 +72,12 @@ docker build -t cpi-mlops:latest .
 
 📜 License
 
-Copyright (c) 2026 [Mugilan]. All Rights Reserved.
+Copyright (c) 2026 Mugilan. All Rights Reserved.
 
 This project is licensed under a Proprietary License.
 
-    The contents of this repository, including the code, model weights, and documentation, are the intellectual property of the author.
+This repository and its contents (including source code, model artifacts, and documentation) are the intellectual property of the author.
 
-    Unauthorized copying, modification, distribution, or commercial use of this software is strictly prohibited.
+No part of this project may be copied, modified, distributed, or used for commercial purposes without explicit written permission from the author.
 
-    You may fork this repository for viewing purposes only.
-
-For permission requests, please contact the author via GitHub.
+For licensing inquiries, please contact via GitHub.
