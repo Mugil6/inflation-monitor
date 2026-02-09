@@ -30,7 +30,7 @@ try:
     else:
         # Separate data for the chart
         df_actuals = df[df['cpi_inflation_rate'].notna()].copy()
-        df_forecasts = df[df['is_forecast'] == True].copy()
+        df_forecasts = df[df['predicted_inflation'].notna()].copy()
 
         # 2. TOP METRICS
         latest_f = df_forecasts.iloc[-1]
